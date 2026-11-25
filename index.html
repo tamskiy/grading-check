@@ -118,7 +118,8 @@
 
 <script>
 const tg = window.Telegram && window.Telegram.WebApp;
-const inTelegram = !!(tg && tg.initData);
+// У мини-приложения, открытого кнопкой клавиатуры, initData пустой, поэтому смотрим на platform.
+const inTelegram = !!(tg && tg.platform && tg.platform !== "unknown");
 const FINE = 5000;
 
 // ---- конфигурация из адреса (передаёт бот) ----
