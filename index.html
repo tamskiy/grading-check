@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Проверка качества</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-secondary-bg-color, #eef1f4);
+    --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff));
+    --text: var(--tg-theme-text-color, #15191e);
+    --hint: var(--tg-theme-hint-color, #6b7580);
+    --accent: var(--tg-theme-button-color, #2a7de1);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: var(--tg-theme-destructive-text-color, #d93a3a);
+    --ok: #1f9d55;
+    --line: color-mix(in srgb, var(--hint) 28%, transparent);
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 12px 12px calc(96px + env(safe-area-inset-bottom, 0px)); }
+  section { background: var(--card); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--hint); margin: 0 0 10px; letter-spacing: .01em; }
+
+  /* сканер */
+  .scan { padding: 0; overflow: hidden; }
+  #reader { width: 100%; background: #000; min-height: 0; }
+  #reader video { display: block; width: 100% !important; object-fit: cover; }
+  .scan-body { padding: 14px; }
+  .device { font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 700; letter-spacing: .04em;
+    word-break: break-all; min-height: 40px; }
+  .device.empty { font-size: 17px; font-weight: 500; color: var(--hint); letter-spacing: 0; }
+  .scan-note { font-size: 13px; color: var(--hint); margin-top: 4px; min-height: 18px; }
+  .scan-note.warn { color: var(--danger); }
+  .scan-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+  button, select, input, textarea { font: inherit; color: inherit; }
+  .btn { flex: 1; border: 0; border-radius: 10px; padding: 12px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: var(--accent-text); }
+  .btn.ghost { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .btn:focus-visible, .seg button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  input[type=text], select, textarea { width: 100%; border: 1px solid var(--line); background: transparent;
+    border-radius: 10px; padding: 11px 12px; }
+  textarea { min-height: 84px; resize: vertical; }
+  label.field { display: block; margin-top: 12px; }
+  label.field > span { display: block; font-size: 13px; color: var(--hint); margin-bottom: 6px; }
+
+  /* сегменты */
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg button { flex: 1 0 auto; min-width: 52px; border: 1px solid var(--line); background: transparent;
+    border-radius: 10px; padding: 10px 12px; font-weight: 600; cursor: pointer; }
+  .seg button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  .seg.result button[data-v="Ошибка"][aria-pressed=true] { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .seg.result button[data-v="Без ошибок"][aria-pressed=true] { background: var(--ok); border-color: var(--ok); color: #fff; }
+
+  .auto { font-size: 13px; color: var(--hint); margin-top: 8px; }
+  .fine { margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-weight: 600;
+    background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+  .hidden { display: none !important; }
+  #fallbackSave { width: 100%; margin-top: 4px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="scan">
+    <div id="reader" class="hidden"></div>
+    <div class="scan-body">
+      <h2>Устройство</h2>
+      <div id="device" class="device empty">Отсканируйте IMEI или введите вручную</div>
+      <div id="scanNote" class="scan-note"></div>
+      <div class="scan-actions">
+        <button class="btn" id="scanBtn" type="button">Сканировать</button>
+        <button class="btn ghost" id="manualBtn" type="button">Ввести вручную</button>
+      </div>
+      <label class="field hidden" id="manualWrap">
+        <span>IMEI / серийный номер (сюда же вводит ручной сканер)</span>
+        <input type="text" id="manual" inputmode="text" autocomplete="off" autocapitalize="characters">
+      </label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Кого проверяем</h2>
+    <select id="employee" aria-label="Сотрудник"></select>
+    <label class="field"><span>Поток</span>
+      <div class="seg" id="flow" role="group" aria-label="Поток"></div>
+    </label>
+  </section>
+
+  <section id="graderBlock" class="hidden">
+    <h2>Грейд и чистка</h2>
+    <label class="field" style="margin-top:0"><span>Грейд, выставленный грейдером</span>
+      <div class="seg" id="gradeSet" role="group"></div></label>
+    <label class="field"><span>Грейд по проверке</span>
+      <div class="seg" id="gradeChecked" role="group"></div></label>
+    <label class="field"><span>Чистка в норме</span>
+      <div class="seg" id="clean" role="group"></div></label>
+  </section>
+
+  <section>
+    <h2>Результат</h2>
+    <div class="seg result" id="result" role="group"></div>
+    <div class="auto" id="autoNote"></div>
+    <label class="field hidden" id="errorWrap"><span>Что не так</span>
+      <textarea id="error" placeholder="Например: не учтена царапина на экране, пыль в разъёме"></textarea></label>
+    <div class="fine hidden" id="fineNote"></div>
+  </section>
+
+  <button class="btn hidden" id="fallbackSave" type="button">Сохранить проверку</button>
+</main>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+const inTelegram = !!(tg && tg.initData);
+const FINE = 5000;
+
+// ---- конфигурация из адреса (передаёт бот) ----
+function readCfg() {
+  try {
+    const raw = new URLSearchParams(location.search).get("cfg");
+    const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) {
+    return { staff: [{ n: "Тестовый грейдер", r: "Грейдер" }, { n: "Тестовый фотограф", r: "Фотограф" }],
+             grades: ["A", "B", "C", "D"] };
+  }
+}
+const cfg = readCfg();
+const state = { device: "", flow: "Стандарт", gradeSet: null, gradeChecked: null, clean: null,
+                result: null, resultTouched: false };
+
+// ---- сегментированные кнопки ----
+function seg(id, values, key, onChange) {
+  const box = document.getElementById(id);
+  box.innerHTML = "";
+  values.forEach(v => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = v; b.dataset.v = v;
+    b.setAttribute("aria-pressed", state[key] === v ? "true" : "false");
+    b.onclick = () => {
+      state[key] = v;
+      box.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x.dataset.v === v));
+      tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged();
+      onChange && onChange(v);
+      refresh();
+    };
+    box.appendChild(b);
+  });
+}
+function setSeg(id, key, v) {
+  state[key] = v;
+  document.querySelectorAll(`#${id} button`).forEach(x => x.setAttribute("aria-pressed", x.dataset.v === v));
+}
+
+// ---- сотрудники ----
+const empSel = document.getElementById("employee");
+empSel.innerHTML = '<option value="">Выберите сотрудника</option>';
+["Грейдер", "Фотограф"].forEach(role => {
+  const list = cfg.staff.filter(s => s.r === role);
+  if (!list.length) return;
+  const g = document.createElement("optgroup"); g.label = role === "Грейдер" ? "Грейдеры" : "Фотографы";
+  list.forEach(s => { const o = document.createElement("option"); o.value = s.n; o.textContent = s.n; g.appendChild(o); });
+  empSel.appendChild(g);
+});
+const roleOf = name => (cfg.staff.find(s => s.n === name) || {}).r;
+empSel.onchange = refresh;
+
+seg("flow", ["Стандарт", "Kaspi"], "flow");
+seg("gradeSet", cfg.grades, "gradeSet", autoResult);
+seg("gradeChecked", cfg.grades, "gradeChecked", autoResult);
+seg("clean", ["Да", "Нет"], "clean", autoResult);
+seg("result", ["Без ошибок", "Ошибка"], "result", () => { state.resultTouched = true; });
+
+// Результат подставляется сам по грейду и чистке, но его можно поменять вручную
+function autoResult() {
+  if (state.resultTouched) return;
+  if (state.gradeSet && state.gradeChecked && state.clean) {
+    const bad = state.gradeSet !== state.gradeChecked || state.clean === "Нет";
+    setSeg("result", "result", bad ? "Ошибка" : "Без ошибок");
+  }
+}
+
+// ---- IMEI ----
+function luhn(num) {
+  let sum = 0;
+  for (let i = 0; i < num.length; i++) {
+    let d = +num[num.length - 1 - i];
+    if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+const note = document.getElementById("scanNote");
+function setDevice(v, msg, warn) {
+  state.device = v.trim();
+  const el = document.getElementById("device");
+  el.textContent = state.device || "Отсканируйте IMEI или введите вручную";
+  el.classList.toggle("empty", !state.device);
+  note.textContent = msg || ""; note.classList.toggle("warn", !!warn);
+  refresh();
+}
+function describeCode(code) {
+  if (/^\d{15}$/.test(code)) return luhn(code) ? { ok: true } : { ok: false, msg: "Контрольная цифра IMEI не сходится, сканирую ещё раз" };
+  if (/^\d{8}$|^\d{12,13}$/.test(code)) return { ok: false, msg: "Это штрихкод товара (EAN). Наведите камеру на штрихкод IMEI" };
+  return { ok: true, msg: "Не IMEI: сохранено как серийный номер" };
+}
+
+// ---- камера ----
+let scanner = null;
+const reader = document.getElementById("reader");
+const scanBtn = document.getElementById("scanBtn");
+async function startScan() {
+  if (!window.Html5Qrcode) { setDevice(state.device, "Сканер не загрузился. Введите номер вручную", true); return; }
+  reader.classList.remove("hidden");
+  scanBtn.textContent = "Остановить";
+  const F = Html5QrcodeSupportedFormats;
+  scanner = scanner || new Html5Qrcode("reader", {
+    formatsToSupport: [F.CODE_128, F.CODE_39, F.EAN_13, F.QR_CODE, F.DATA_MATRIX],
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true }, verbose: false });
+  try {
+    await scanner.start({ facingMode: "environment" },
+      { fps: 12, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.35) }) },
+      code => {
+        const r = describeCode(code.trim());
+        if (!r.ok) { note.textContent = r.msg; note.classList.add("warn"); return; }
+        tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
+        stopScan();
+        setDevice(code, r.msg || "IMEI считан");
+      }, () => {});
+  } catch (e) {
+    stopScan();
+    setDevice(state.device, "Нет доступа к камере. Разрешите доступ в настройках Telegram или введите номер вручную", true);
+  }
+}
+async function stopScan() {
+  scanBtn.textContent = "Сканировать";
+  if (scanner && scanner.isScanning) { try { await scanner.stop(); } catch (e) {} }
+  reader.classList.add("hidden");
+}
+scanBtn.onclick = () => (scanner && scanner.isScanning ? stopScan() : startScan());
+
+const manual = document.getElementById("manual");
+document.getElementById("manualBtn").onclick = () => {
+  document.getElementById("manualWrap").classList.remove("hidden");
+  manual.focus();
+};
+manual.addEventListener("input", () => {
+  const v = manual.value.trim();
+  const r = /^\d{15}$/.test(v) && !luhn(v) ? "Проверьте номер: контрольная цифра IMEI не сходится" : "";
+  setDevice(v, r, !!r);
+});
+// ручной сканер обычно завершает ввод клавишей Enter
+manual.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); manual.blur(); } });
+
+// ---- состояние формы ----
+const errorEl = document.getElementById("error");
+errorEl.addEventListener("input", refresh);
+function missing() {
+  const m = [];
+  if (!state.device) m.push("устройство");
+  if (!empSel.value) m.push("сотрудник");
+  if (roleOf(empSel.value) === "Грейдер" && (!state.gradeSet || !state.gradeChecked || !state.clean)) m.push("грейд и чистка");
+  if (!state.result) m.push("результат");
+  if (state.result === "Ошибка" && !errorEl.value.trim()) m.push("описание ошибки");
+  return m;
+}
+function refresh() {
+  const isGrader = roleOf(empSel.value) === "Грейдер";
+  document.getElementById("graderBlock").classList.toggle("hidden", !isGrader);
+  const err = state.result === "Ошибка";
+  document.getElementById("errorWrap").classList.toggle("hidden", !err);
+  const fine = document.getElementById("fineNote");
+  fine.classList.toggle("hidden", !err);
+  fine.textContent = `Сотруднику будет начислен штраф ${FINE.toLocaleString("ru-RU")} ₸`;
+  document.getElementById("autoNote").textContent =
+    isGrader && !state.resultTouched && state.result ? "Результат подставлен по грейду и чистке. Его можно изменить." : "";
+
+  const m = missing();
+  if (inTelegram) {
+    tg.MainButton.setText(m.length ? "Заполните: " + m.join(", ") : "Сохранить проверку");
+    m.length ? tg.MainButton.disable() : tg.MainButton.enable();
+    tg.MainButton.color = m.length ? (tg.themeParams.hint_color || "#9aa3ad") : (tg.themeParams.button_color || "#2a7de1");
+  } else {
+    const fb = document.getElementById("fallbackSave");
+    fb.classList.remove("hidden"); fb.disabled = m.length > 0;
+    fb.textContent = m.length ? "Заполните: " + m.join(", ") : "Сохранить проверку";
+  }
+}
+
+function payload() {
+  const isGrader = roleOf(empSel.value) === "Грейдер";
+  return {
+    device: state.device, employee: empSel.value, flow: state.flow,
+    gradeSet: isGrader ? state.gradeSet : null, gradeChecked: isGrader ? state.gradeChecked : null,
+    clean: isGrader ? state.clean : null, result: state.result,
+    error: state.result === "Ошибка" ? errorEl.value.trim().slice(0, 1500) : ""
+  };
+}
+function save() {
+  if (missing().length) return;
+  stopScan();
+  if (inTelegram) tg.sendData(JSON.stringify(payload()));   // бот получит данные, окно закроется
+  else alert("Откройте форму из бота в Telegram.\n\n" + JSON.stringify(payload(), null, 2));
+}
+
+if (inTelegram) {
+  tg.ready(); tg.expand();
+  tg.MainButton.show();
+  tg.MainButton.onClick(save);
+}
+document.getElementById("fallbackSave").onclick = save;
+refresh();
+</script>
+</body>
+</html>
