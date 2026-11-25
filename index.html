@@ -73,14 +73,14 @@
     <div id="reader" class="hidden"></div>
     <div class="scan-body">
       <h2>Устройство</h2>
-      <div id="device" class="device empty">Отсканируйте IMEI или введите вручную</div>
+      <div id="device" class="device empty">Отсканируйте Device ID или введите вручную</div>
       <div id="scanNote" class="scan-note"></div>
       <div class="scan-actions">
         <button class="btn" id="scanBtn" type="button">Сканировать</button>
         <button class="btn ghost" id="manualBtn" type="button">Ввести вручную</button>
       </div>
       <label class="field hidden" id="manualWrap">
-        <span>IMEI / серийный номер (сюда же вводит ручной сканер)</span>
+        <span>Device ID (сюда же вводит ручной сканер)</span>
         <input type="text" id="manual" inputmode="text" autocomplete="off" autocapitalize="characters">
       </label>
     </div>
@@ -189,29 +189,20 @@ function autoResult() {
   }
 }
 
-// ---- IMEI ----
-function luhn(num) {
-  let sum = 0;
-  for (let i = 0; i < num.length; i++) {
-    let d = +num[num.length - 1 - i];
-    if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
-    sum += d;
-  }
-  return sum % 10 === 0;
-}
+// ---- Device ID ----
+const DEVICE_ID_RE = /^\d{18}$/;   // Device ID: 18 цифр
 const note = document.getElementById("scanNote");
 function setDevice(v, msg, warn) {
   state.device = v.trim();
   const el = document.getElementById("device");
-  el.textContent = state.device || "Отсканируйте IMEI или введите вручную";
+  el.textContent = state.device || "Отсканируйте Device ID или введите вручную";
   el.classList.toggle("empty", !state.device);
   note.textContent = msg || ""; note.classList.toggle("warn", !!warn);
   refresh();
 }
 function describeCode(code) {
-  if (/^\d{15}$/.test(code)) return luhn(code) ? { ok: true } : { ok: false, msg: "Контрольная цифра IMEI не сходится, сканирую ещё раз" };
-  if (/^\d{8}$|^\d{12,13}$/.test(code)) return { ok: false, msg: "Это штрихкод товара (EAN). Наведите камеру на штрихкод IMEI" };
-  return { ok: true, msg: "Не IMEI: сохранено как серийный номер" };
+  if (DEVICE_ID_RE.test(code)) return { ok: true };
+  return { ok: false, msg: "Это не Device ID (нужно 18 цифр). Наведите камеру на штрихкод Device ID" };
 }
 
 // ---- камера ----
@@ -234,7 +225,7 @@ async function startScan() {
         if (!r.ok) { note.textContent = r.msg; note.classList.add("warn"); return; }
         tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred("success");
         stopScan();
-        setDevice(code, r.msg || "IMEI считан");
+        setDevice(code, r.msg || "Device ID считан");
       }, () => {});
   } catch (e) {
     stopScan();
@@ -255,7 +246,7 @@ document.getElementById("manualBtn").onclick = () => {
 };
 manual.addEventListener("input", () => {
   const v = manual.value.trim();
-  const r = /^\d{15}$/.test(v) && !luhn(v) ? "Проверьте номер: контрольная цифра IMEI не сходится" : "";
+  const r = v && !DEVICE_ID_RE.test(v) ? "Device ID обычно состоит из 18 цифр. Проверьте номер" : "";
   setDevice(v, r, !!r);
 });
 // ручной сканер обычно завершает ввод клавишей Enter
